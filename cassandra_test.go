@@ -180,6 +180,68 @@ func TestPaging(t *testing.T) {
 	}
 }
 
+func TestRowScanner(t *testing.T) {
+	session := createSession(t)
+	defer session.Close()
+
+	if err := session.Query(`CREATE TABLE records (
+			id bigint,
+			name varchar,
+			PRIMARY KEY (id)
+		)`).Exec(); err != nil {
+		t.Fatal("create:", err)
+	}
+
+	count := 10
+
+	for i := 0; i < count; i++ {
+		if err := session.Query("INSERT INTO records (id, name) VALUES (?,?)", i+1000, "baz").Exec(); err != nil {
+			t.Fatal("insert:", err)
+		}
+	}
+
+	iter := session.Query("SELECT id, name FROM records").Iter()
+
+	var scanner RecordScanner
+	if err := iter.ScanAll(&scanner); err != nil {
+		t.Fatal("scan all:", err)
+	}
+
+	rowsScanned := len(scanner.Records)
+
+	if rowsScanned != count {
+		t.Fatalf("expected %d records, got %d", count, rowsScanned)
+	}
+}
+
+type Record struct {
+	Id   int64
+	Name string
+}
+
+type RecordScanner struct {
+	Records []Record
+}
+
+func (d *RecordScanner) ScanRow(info []ColumnInfo, data [][]byte) error {
+
+	var record Record
+
+	err := Unmarshal(info[0].TypeInfo, data[0], &record.Id)
+	if err != nil {
+		return err
+	}
+
+	err = Unmarshal(info[1].TypeInfo, data[1], &record.Name)
+	if err != nil {
+		return err
+	}
+
+	d.Records = append(d.Records, record)
+
+	return nil
+}
+
 func TestCAS(t *testing.T) {
 	if *flagProto == 1 {
 		t.Skip("lightweight transactions not supported. Please use Cassandra >= 2.0")

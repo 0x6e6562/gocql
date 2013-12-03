@@ -245,6 +245,41 @@ func (iter *Iter) Scan(dest ...interface{}) bool {
 	return true
 }
 
+type RowScanner interface {
+	ScanRow([]ColumnInfo, [][]byte) error
+}
+
+func (iter *Iter) ScanAll(scanner RowScanner) error {
+	for iter.ScanWith(scanner) {
+	}
+	return iter.Close()
+}
+
+func (iter *Iter) ScanWith(scanner RowScanner) bool {
+	if iter.err != nil {
+		return false
+	}
+	if iter.pos >= len(iter.rows) {
+		if iter.next != nil {
+			*iter = *iter.next.fetch()
+			return iter.ScanWith(scanner)
+		}
+		return false
+	}
+	if iter.next != nil && iter.pos == iter.next.pos {
+		go iter.next.fetch()
+	}
+
+	err := scanner.ScanRow(iter.columns, iter.rows[iter.pos])
+	if err != nil {
+		iter.err = err
+		return false
+	}
+
+	iter.pos++
+	return true
+}
+
 // Close closes the iterator and returns any errors that happened during
 // the query or the iteration.
 func (iter *Iter) Close() error {
